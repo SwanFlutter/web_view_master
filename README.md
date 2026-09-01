@@ -1,14 +1,15 @@
-[![pub package](https://img.shields.io/pub/v/image_picker_master.svg)](https://pub.dev/packages/image_picker_master)
-[![Pub Points](https://img.shields.io/pub/points/image_picker_master)](https://pub.dev/packages/image_picker_master/score)
-[![Popularity](https://img.shields.io/pub/popularity/image_picker_master)](https://pub.dev/packages/image_picker_master)
-[![Pub Likes](https://img.shields.io/pub/likes/image_picker_master)](https://pub.dev/packages/image_picker_master)
-[![GitHub issues](https://img.shields.io/github/issues/SwanFlutter/image_picker_master)](https://github.com/SwanFlutter/image_picker_master/issues)
-[![GitHub forks](https://img.shields.io/github/forks/SwanFlutter/image_picker_master)](https://github.com/SwanFlutter/image_picker_master/network/members)
-[![GitHub stars](https://img.shields.io/github/stars/SwanFlutter/image_picker_master?style=social)](https://github.com/SwanFlutter/image_picker_master/stargazers)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Flutter Platform](https://img.shields.io/badge/platform-android%20%7C%20ios%20%7C%20macos%20%7C%20linux%20%7C%20windows%20%7C%20web-lightgrey)](https://pub.dev/packages/image_picker_master)
 
 # WebView Master
+
+[![pub package](https://img.shields.io/pub/v/web_view_master.svg)](https://pub.dev/packages/web_view_master)
+[![Pub Points](https://img.shields.io/pub/points/web_view_master)](https://pub.dev/packages/web_view_master/score)
+[![Popularity](https://img.shields.io/pub/popularity/web_view_master)](https://pub.dev/packages/web_view_master)
+[![Pub Likes](https://img.shields.io/pub/likes/web_view_master)](https://pub.dev/packages/web_view_master)
+[![GitHub issues](https://img.shields.io/github/issues/SwanFlutter/web_view_master)](https://github.com/SwanFlutter/web_view_master/issues)
+[![GitHub forks](https://img.shields.io/github/forks/SwanFlutter/web_view_master)](https://github.com/SwanFlutter/web_view_master/network/members)
+[![GitHub stars](https://img.shields.io/github/stars/SwanFlutter/web_view_master?style=social)](https://github.com/SwanFlutter/web_view_master/stargazers)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Flutter Platform](https://img.shields.io/badge/platform-android%20%7C%20ios%20%7C%20macos%20%7C%20windows-lightgrey)](https://pub.dev/packages/web_view_master)
 
 A comprehensive WebView plugin for Flutter that provides advanced features and seamless integration for both Android and iOS platforms.
 
