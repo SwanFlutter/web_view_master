@@ -11,7 +11,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Flutter Platform](https://img.shields.io/badge/platform-android%20%7C%20ios%20%7C%20macos%20%7C%20windows-lightgrey)](https://pub.dev/packages/web_view_master)
 
-A comprehensive WebView plugin for Flutter that provides advanced features and seamless integration for both Android and iOS platforms.
+A comprehensive WebView plugin for Flutter that provides advanced features and seamless integration for both All platforms.
 
 ---
 
