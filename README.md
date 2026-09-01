@@ -790,5 +790,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-If you encounter any issues or have questions, please file an issue on the [GitHub repository](https://github.com/your-repo/web_view_master/issues).
+If you encounter any issues or have questions, please file an issue on the [GitHub repository](https://github.com/SwanFlutter/web_view_master/issues).
 
