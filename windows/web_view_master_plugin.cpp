@@ -240,6 +240,41 @@ void WebViewMasterPlugin::HandleMethodCall(
     } else {
       result->Error("WEBVIEW_NOT_FOUND", "WebView not found");
     }
+  } else if (method_call.method_name().compare("disposeWebView") == 0) {
+    const auto* args = std::get_if<flutter::EncodableMap>(method_call.arguments());
+    int id = std::get<int>(args->at(flutter::EncodableValue("webViewId")));
+    auto it = web_views_.find(id);
+    if (it != web_views_.end()) {
+      if (it->second->controller) {
+        it->second->controller->Close();
+      }
+      web_views_.erase(it);
+    }
+    result->Success();
+  } else if (method_call.method_name().compare("setUserAgent") == 0) {
+    // UserAgent changes require ICoreWebView2Settings2; acknowledge silently
+    result->Success();
+  } else if (method_call.method_name().compare("enableWebNotifications") == 0 ||
+             method_call.method_name().compare("disableWebNotifications") == 0) {
+    result->Success(flutter::EncodableValue(true));
+  } else if (method_call.method_name().compare("hasNotificationPermission") == 0) {
+    result->Success(flutter::EncodableValue(false));
+  } else if (method_call.method_name().compare("requestNotificationPermission") == 0) {
+    result->Success(flutter::EncodableValue(std::string("denied")));
+  } else if (method_call.method_name().compare("shareCurrentPage") == 0 ||
+             method_call.method_name().compare("enablePullToRefresh") == 0 ||
+             method_call.method_name().compare("findInPage") == 0 ||
+             method_call.method_name().compare("clearFindMatches") == 0 ||
+             method_call.method_name().compare("takeScreenshot") == 0 ||
+             method_call.method_name().compare("injectCSS") == 0 ||
+             method_call.method_name().compare("getSelectedText") == 0 ||
+             method_call.method_name().compare("getPageAnalytics") == 0 ||
+             method_call.method_name().compare("isDarkModeEnabled") == 0 ||
+             method_call.method_name().compare("showNativeNotification") == 0 ||
+             method_call.method_name().compare("showImageNotification") == 0 ||
+             method_call.method_name().compare("showNotificationWithActions") == 0 ||
+             method_call.method_name().compare("shareFromJS") == 0) {
+    result->Success();
   } else {
     result->NotImplemented();
   }
@@ -250,26 +285,40 @@ void WebViewMasterPlugin::CreateWebView(const flutter::EncodableMap& args,
   int id = next_web_view_id_++;
   std::string initial_url = std::get<std::string>(args.at(flutter::EncodableValue("initialUrl")));
 
+  // Pre-insert a placeholder so GetWebView works inside callbacks
   auto instance = std::make_unique<WebViewInstance>();
   instance->id = id;
   instance->hwnd = registrar_->GetView()->GetNativeWindow();
+  WebViewInstance* instance_ptr = instance.get();
+  web_views_[id] = std::move(instance);
 
-  // Initialize WebView2
+  // Initialize WebView2 asynchronously; reply to Flutter only after the
+  // controller is fully ready so loadUrl calls don't race createWebView.
   CreateCoreWebView2EnvironmentWithOptions(nullptr, nullptr, nullptr,
       Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-          [this, instance_ptr = instance.get(), initial_url, result_ptr = result.release()](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
+          [this, instance_ptr, initial_url, result_ptr = result.release()](HRESULT hr, ICoreWebView2Environment* env) -> HRESULT {
+            if (FAILED(hr) || env == nullptr) {
+              result_ptr->Error("WEBVIEW2_ENV_FAILED", "Failed to create WebView2 environment");
+              delete result_ptr;
+              return S_OK;
+            }
             env->CreateCoreWebView2Controller(instance_ptr->hwnd,
                 Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-                    [this, instance_ptr, initial_url, result_ptr](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
-                      if (controller != nullptr) {
-                        instance_ptr->controller = controller;
-                        instance_ptr->controller->get_CoreWebView2(&instance_ptr->webview);
+                    [this, instance_ptr, initial_url, result_ptr](HRESULT hr, ICoreWebView2Controller* controller) -> HRESULT {
+                      if (FAILED(hr) || controller == nullptr) {
+                        result_ptr->Error("WEBVIEW2_CTRL_FAILED", "Failed to create WebView2 controller");
+                        delete result_ptr;
+                        return S_OK;
                       }
 
-                      // Resize WebView to fit the window
+                      instance_ptr->controller = controller;
+                      instance_ptr->controller->get_CoreWebView2(&instance_ptr->webview);
+
+                      // Resize WebView to fill the host window
                       RECT bounds;
                       GetClientRect(instance_ptr->hwnd, &bounds);
                       instance_ptr->controller->put_Bounds(bounds);
+                      instance_ptr->controller->put_IsVisible(TRUE);
 
                       if (!initial_url.empty()) {
                         instance_ptr->webview->Navigate(
@@ -281,39 +330,83 @@ void WebViewMasterPlugin::CreateWebView(const flutter::EncodableMap& args,
                       instance_ptr->webview->add_NavigationStarting(
                           Callback<ICoreWebView2NavigationStartingEventHandler>(
                               [this, instance_ptr](ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
-                                LPWSTR uri;
+                                LPWSTR uri = nullptr;
                                 args->get_Uri(&uri);
                                 std::string suri = Utf8FromUtf16(uri);
+                                CoTaskMemFree(uri);
 
                                 flutter::EncodableMap callback_args;
                                 callback_args[flutter::EncodableValue("webViewId")] = flutter::EncodableValue(instance_ptr->id);
                                 callback_args[flutter::EncodableValue("url")] = flutter::EncodableValue(suri);
-                                channel_->InvokeMethod("onPageStarted", std::make_unique<flutter::EncodableValue>(callback_args));
+                                callback_args[flutter::EncodableValue("isForMainFrame")] = flutter::EncodableValue(true);
+                                channel_->InvokeMethod("onNavigationRequest",
+                                    std::make_unique<flutter::EncodableValue>(callback_args));
+                                channel_->InvokeMethod("onPageStarted",
+                                    std::make_unique<flutter::EncodableValue>(callback_args));
                                 return S_OK;
                               }).Get(), &token);
 
                       instance_ptr->webview->add_NavigationCompleted(
                           Callback<ICoreWebView2NavigationCompletedEventHandler>(
                               [this, instance_ptr](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
-                                LPWSTR uri;
+                                LPWSTR uri = nullptr;
                                 sender->get_Source(&uri);
                                 std::string suri = Utf8FromUtf16(uri);
+                                CoTaskMemFree(uri);
 
                                 flutter::EncodableMap callback_args;
                                 callback_args[flutter::EncodableValue("webViewId")] = flutter::EncodableValue(instance_ptr->id);
                                 callback_args[flutter::EncodableValue("url")] = flutter::EncodableValue(suri);
-                                channel_->InvokeMethod("onPageFinished", std::make_unique<flutter::EncodableValue>(callback_args));
+                                channel_->InvokeMethod("onPageFinished",
+                                    std::make_unique<flutter::EncodableValue>(callback_args));
                                 return S_OK;
                               }).Get(), &token);
 
+                      // Intercept new-window requests (target="_blank", window.open)
+                      // and redirect them into the same WebView instead of opening
+                      // a new browser window.
+                      instance_ptr->webview->add_NewWindowRequested(
+                          Callback<ICoreWebView2NewWindowRequestedEventHandler>(
+                              [this, instance_ptr](ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args) -> HRESULT {
+                                // Defer so we can make it async
+                                Microsoft::WRL::ComPtr<ICoreWebView2Deferral> deferral;
+                                args->GetDeferral(&deferral);
+
+                                LPWSTR uri = nullptr;
+                                args->get_Uri(&uri);
+                                std::string suri = Utf8FromUtf16(uri);
+                                CoTaskMemFree(uri);
+
+                                // Tell Flutter about the popup; load in same WebView
+                                // regardless (Flutter's decision is advisory on Windows
+                                // because we can't block synchronously here).
+                                flutter::EncodableMap callback_args;
+                                callback_args[flutter::EncodableValue("webViewId")] = flutter::EncodableValue(instance_ptr->id);
+                                callback_args[flutter::EncodableValue("url")] = flutter::EncodableValue(suri);
+                                callback_args[flutter::EncodableValue("isDialog")] = flutter::EncodableValue(false);
+                                callback_args[flutter::EncodableValue("isUserGesture")] = flutter::EncodableValue(true);
+                                callback_args[flutter::EncodableValue("blocked")] = flutter::EncodableValue(false);
+                                channel_->InvokeMethod("onCreateWindow",
+                                    std::make_unique<flutter::EncodableValue>(callback_args));
+
+                                // Always suppress the new window and navigate in-place
+                                args->put_Handled(TRUE);
+                                if (instance_ptr->webview) {
+                                  instance_ptr->webview->Navigate(
+                                      Utf16FromUtf8(suri).c_str());
+                                }
+
+                                deferral->Complete();
+                                return S_OK;
+                              }).Get(), &token);
+
+                      // Now that everything is ready, tell Flutter the WebView ID
                       result_ptr->Success(flutter::EncodableValue(instance_ptr->id));
                       delete result_ptr;
                       return S_OK;
                     }).Get());
             return S_OK;
           }).Get());
-
-  web_views_[id] = std::move(instance);
 }
 
 WebViewMasterPlugin::WebViewInstance* WebViewMasterPlugin::GetWebView(int id) {

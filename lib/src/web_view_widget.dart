@@ -222,6 +222,10 @@ class _WebViewWidgetState extends State<WebViewWidget> {
           creationParams: creationParams,
           creationParamsCodec: const StandardMessageCodec(),
         );
+      case TargetPlatform.windows:
+        // WebView2 renders directly into the native window; Flutter uses
+        // a Texture widget to composite the pixel output into the widget tree.
+        return Texture(textureId: _controller!.webViewId);
       default:
         return Center(
           child: Text(
