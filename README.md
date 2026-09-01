@@ -1,6 +1,23 @@
+[![pub package](https://img.shields.io/pub/v/image_picker_master.svg)](https://pub.dev/packages/image_picker_master)
+[![Pub Points](https://img.shields.io/pub/points/image_picker_master)](https://pub.dev/packages/image_picker_master/score)
+[![Popularity](https://img.shields.io/pub/popularity/image_picker_master)](https://pub.dev/packages/image_picker_master)
+[![Pub Likes](https://img.shields.io/pub/likes/image_picker_master)](https://pub.dev/packages/image_picker_master)
+[![GitHub issues](https://img.shields.io/github/issues/SwanFlutter/image_picker_master)](https://github.com/SwanFlutter/image_picker_master/issues)
+[![GitHub forks](https://img.shields.io/github/forks/SwanFlutter/image_picker_master)](https://github.com/SwanFlutter/image_picker_master/network/members)
+[![GitHub stars](https://img.shields.io/github/stars/SwanFlutter/image_picker_master?style=social)](https://github.com/SwanFlutter/image_picker_master/stargazers)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Flutter Platform](https://img.shields.io/badge/platform-android%20%7C%20ios%20%7C%20macos%20%7C%20linux%20%7C%20windows%20%7C%20web-lightgrey)](https://pub.dev/packages/image_picker_master)
+
 # WebView Master
 
 A comprehensive WebView plugin for Flutter that provides advanced features and seamless integration for both Android and iOS platforms.
+
+---
+
+<img width="1024" height="1024" alt="Copilot_20260901_075458" src="https://github.com/user-attachments/assets/4acd9d75-30a7-4830-a2f9-d1deff166893" />
+
+
+
 
 ## Features
 
