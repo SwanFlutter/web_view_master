@@ -1,0 +1,37 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  package="com.example.web_view_master">
+
+  <!-- Internet permission for WebView -->
+  <uses-permission android:name="android.permission.INTERNET" />
+
+  <!-- Network state permission -->
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+  <!-- WiFi state permission -->
+  <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+  <!-- File access permissions for file uploads -->
+  <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+  <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
+  <!-- Camera permission for file uploads -->
+  <uses-permission android:name="android.permission.CAMERA" />
+
+  <!-- Microphone permission for media capture -->
+  <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+  <!-- Location permissions for geolocation -->
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+  <!-- Notification permissions for Android 13+ -->
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+  <!-- Hardware features -->
+  <uses-feature android:name="android.hardware.camera" android:required="false" />
+  <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+  <uses-feature android:name="android.hardware.microphone" android:required="false" />
+  <uses-feature android:name="android.hardware.location" android:required="false" />
+  <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+
+</manifest>
