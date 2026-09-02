@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تست خروج لینک از WebView</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: Tahoma, "Segoe UI", sans-serif;
+    margin: 0; padding: 16px; background: #f4f6f8; color: #14213d;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p.hint { font-size: 13px; color: #5a6572; margin: 0 0 16px; }
+  .group { background: #fff; border-radius: 10px; padding: 12px;
+           margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .group h2 { font-size: 14px; margin: 0 0 10px; color: #0b5ed7; }
+  button, a.btn {
+    display: inline-block; margin: 4px 4px 4px 0; padding: 9px 12px;
+    font-size: 13px; font-family: inherit; border: 1px solid #c7d0da;
+    border-radius: 8px; background: #fdfdfd; color: #14213d;
+    cursor: pointer; text-decoration: none;
+  }
+  button:active, a.btn:active { background: #e9eef5; }
+  .danger { border-color: #e08585; color: #b02a37; }
+  code { direction: ltr; unicode-bidi: embed; font-size: 12px; }
+  #log { direction: ltr; text-align: left; background: #10141a; color: #b8f5c0;
+         border-radius: 10px; padding: 10px; font-family: Consolas, monospace;
+         font-size: 12px; white-space: pre-wrap; min-height: 60px; }
+</style>
+</head>
+<body>
+<h1>تست خروج لینک از WebView</h1>
+<p class="hint">
+  هر دکمه یکی از راه‌هایی است که یک صفحه می‌تواند از WebView بیرون بپرد.
+  اگر پنجره‌ی مرورگر سیستم باز شد، آن حالت هنوز مشکل دارد.
+</p>
+
+<div class="group">
+  <h2>۱ - ناوبری معمولی</h2>
+  <a class="btn" href="https://example.com">لینک ساده (همین تب)</a>
+  <a class="btn" href="https://example.com" target="_blank">لینک با target=_blank</a>
+  <button onclick="go('https://example.com')">location.href</button>
+  <button onclick="top.location.replace('https://example.com')">top.location.replace</button>
+</div>
+
+<div class="group">
+  <h2>۲ - پنجره‌ی جدید (window.open)</h2>
+  <button onclick="openWith('https://example.com')">window.open با آدرس</button>
+  <button onclick="openBlank()">window.open خالی + نوشتن با اسکریپت</button>
+  <button onclick="openNamed()">window.open با نام و اندازه (شبیه ۳D-Secure)</button>
+  <button onclick="window.close()">window.close</button>
+</div>
+
+<div class="group">
+  <h2>۳ - فرم</h2>
+  <form action="https://example.com" method="GET" target="_blank">
+    <input type="hidden" name="q" value="get-test">
+    <button type="submit">ارسال GET با target=_blank</button>
+  </form>
+  <form action="https://example.com" method="POST" target="_blank">
+    <input type="hidden" name="amount" value="150000">
+    <button type="submit">ارسال POST با target=_blank</button>
+  </form>
+</div>
+
+<div class="group">
+  <h2>۴ - اسکیم‌های خارج از WebView</h2>
+  <p class="hint">
+    این‌ها همان چیزی هستند که باعث می‌شد لینک به مرورگر پیش‌فرض منتقل شود.
+  </p>
+  <button class="danger" onclick="go('myapp://pay?amount=150000&amp;ref=A1')">
+    <code>myapp://pay</code>
+  </button>
+  <button class="danger" onclick="go('tel:+982100000000')"><code>tel:</code></button>
+  <button class="danger" onclick="go('mailto:test@example.com')"><code>mailto:</code></button>
+  <button class="danger" onclick="go('intent://pay#Intent;scheme=upi;end')">
+    <code>intent://</code>
+  </button>
+  <a class="btn danger" href="bankid:///?autostarttoken=1">
+    <code>bankid://</code> (لینک)
+  </a>
+  <button class="danger" onclick="openWith('myapp://pay?from=popup')">
+    <code>myapp://</code> در پنجره‌ی جدید
+  </button>
+</div>
+
+<div class="group">
+  <h2>۵ - شبیه‌سازی درگاه پرداخت</h2>
+  <p class="hint">
+    مسیر واقعی یک درگاه: صفحه‌ی بانک باز می‌شود، بعد کاربر را با یک ریدایرکت
+    به آدرس بازگشت برنامه می‌فرستد.
+  </p>
+  <button onclick="gateway()">شروع پرداخت (۳ مرحله)</button>
+  <button onclick="gatewayPopup()">شروع پرداخت در پنجره‌ی جدید</button>
+</div>
+
+<div class="group">
+  <h2>گزارش صفحه</h2>
+  <div id="log"></div>
+</div>
+
+<script>
+  var log = document.getElementById('log');
+  function say(text) {
+    log.textContent += '[' + new Date().toLocaleTimeString('en-GB') + '] '
+      + text + '\n';
+  }
+  function go(url) { say('location.href = ' + url); location.href = url; }
+  function openWith(url) {
+    say('window.open(' + url + ')');
+    var w = window.open(url, '_blank');
+    say(w ? 'پنجره ساخته شد' : 'window.open برگشت null (مسدود شد)');
+  }
+  function openBlank() {
+    say('window.open() بدون آدرس، سپس document.write');
+    var w = window.open('', 'wvm_blank', 'width=420,height=560');
+    if (!w) { say('window.open برگشت null (مسدود شد)'); return; }
+    w.document.write('<!DOCTYPE html><meta charset="utf-8">'
+      + '<body style="font-family:Tahoma;padding:24px;text-align:center">'
+      + '<h3>پنجره‌ی ساخته‌شده با اسکریپت</h3>'
+      + '<p>این همان الگوی ۳D-Secure است.</p>'
+      + '<button onclick="window.close()">بستن</button></body>');
+    w.document.close();
+  }
+  function openNamed() {
+    say('window.open با نام و اندازه');
+    window.open('https://example.com', 'wvm_3ds',
+      'width=480,height=640,resizable=yes');
+  }
+  function gatewayPage(target) {
+    return '<!DOCTYPE html><html lang="fa" dir="rtl"><meta charset="utf-8">'
+      + '<body style="font-family:Tahoma;padding:24px;background:#eef4ff">'
+      + '<h3>بانک نمونه</h3><p>مبلغ: ۱۵۰٫۰۰۰ ریال</p>'
+      + '<p>در حال انتقال به آدرس بازگشت برنامه…</p>'
+      + '<script>setTimeout(function(){location.href='
+      + JSON.stringify(target) + '},1500)<\/script></body></html>';
+  }
+  function gateway() {
+    say('مرحله ۱: رفتن به صفحه‌ی بانک');
+    document.open();
+    document.write(gatewayPage('myapp://payment/result?status=ok&ref=A1'));
+    document.close();
+  }
+  function gatewayPopup() {
+    say('پرداخت در پنجره‌ی جدید');
+    var w = window.open('', 'wvm_pay', 'width=460,height=620');
+    if (!w) { say('پنجره ساخته نشد'); return; }
+    w.document.write(gatewayPage('myapp://payment/result?status=ok&ref=B2'));
+    w.document.close();
+  }
+  say('صفحه بارگذاری شد: ' + location.href);
+  window.addEventListener('beforeunload', function () {
+    say('beforeunload');
+  });
+</script>
+</body>
+</html>

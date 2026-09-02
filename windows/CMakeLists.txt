@@ -76,6 +76,10 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE
   flutter
   flutter_wrapper_plugin
   "${WEBVIEW2_LIB}"
+  # CreateStreamOnHGlobal / GetHGlobalFromStream, used by takeScreenshot.
+  ole32
+  # Version helpers used by getPlatformVersion.
+  version
 )
 
 # Copy the DLL to the output directory

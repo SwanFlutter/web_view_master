@@ -507,6 +507,7 @@ if ('Notification' in window) {
 | `allowFileAccess` | `bool` | `true` | Allow file access |
 | `allowContentAccess` | `bool` | `true` | Allow content access |
 | `supportMultipleWindows` | `bool` | `false` | Support multiple windows |
+| `blockExternalSchemes` | `bool` | `true` | Keep URLs the WebView cannot render (`myapp://`, `tel:`, `intent://` …) inside the app instead of letting the OS open them. Windows only |
 | `enableSafeBrowsing` | `bool` | `true` | Enable safe browsing |
 
 ## Error Handling
@@ -613,6 +614,32 @@ Requires **Windows 10 or later** with the [Microsoft Edge WebView2 Runtime](http
 If WebView2 Runtime is not installed on the target machine, the plugin will fail to initialize. You can bundle the Evergreen Bootstrapper or check at runtime using the WebView2 detection API.
 
 No additional dependencies or manual setup are required. The `WebView2Loader.dll` is copied to the output directory automatically during build.
+
+**Deep links and payment gateways.** WebView2 hands any URI scheme it cannot
+render itself — `myapp://`, `tel:`, `mailto:`, `intent://`, bank deep links — to
+the operating system, which opens the registered app (usually the default
+browser). The plugin blocks that by default, reports the URL through
+`onNavigationRequest`, and raises `onWebResourceError` with code `-10`, so a
+gateway that returns to your own scheme can be handled in Dart:
+
+```dart
+onNavigationRequest: (request) async {
+  if (request.url.startsWith('myapp://')) {
+    handlePaymentResult(Uri.parse(request.url));
+    return NavigationDecision.prevent;
+  }
+  return NavigationDecision.navigate;
+},
+```
+
+Set `WebViewSettings(blockExternalSchemes: false)` to get the old behaviour of
+letting Windows open such links itself.
+
+**Rendering.** WebView2 draws into its own child window on top of the Flutter
+surface, so Flutter widgets cannot be painted over it. Place overlays beside the
+WebView (for example in a `Column`) rather than in a `Stack` above it. The
+plugin hides the native view automatically while a dialog or another route
+covers it.
 
 ## Android NDK Configuration
 

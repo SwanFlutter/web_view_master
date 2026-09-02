@@ -14,6 +14,17 @@ class WebViewSettings {
   final bool supportMultipleWindows;
   final bool enableSafeBrowsing;
 
+  /// Whether URLs with a scheme the WebView cannot render itself
+  /// (`myapp://`, `tel:`, `mailto:`, `intent://`, bank deep links …) should be
+  /// blocked instead of handed to the operating system.
+  ///
+  /// This only affects Windows, where WebView2 otherwise passes such URLs to
+  /// the shell — which launches the registered app, usually the default
+  /// browser, and makes it look as though the WebView lost the link. When it
+  /// is blocked, `onNavigationRequest` fires and `onWebResourceError` reports
+  /// error code -10 so the app can decide what to do.
+  final bool blockExternalSchemes;
+
   const WebViewSettings({
     this.enableJavaScript = true,
     this.enableDomStorage = true,
@@ -27,6 +38,7 @@ class WebViewSettings {
     this.allowUniversalAccessFromFileURLs = false,
     this.supportMultipleWindows = false,
     this.enableSafeBrowsing = true,
+    this.blockExternalSchemes = true,
   });
 
   Map<String, dynamic> toMap() {
@@ -43,6 +55,7 @@ class WebViewSettings {
       'allowUniversalAccessFromFileURLs': allowUniversalAccessFromFileURLs,
       'supportMultipleWindows': supportMultipleWindows,
       'enableSafeBrowsing': enableSafeBrowsing,
+      'blockExternalSchemes': blockExternalSchemes,
     };
   }
 }

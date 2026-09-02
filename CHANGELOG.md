@@ -2,7 +2,56 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.1.0] - 2026-09-01
+## [1.1.0] - 2026-09-02
+
+### Fixed — Windows
+- **Payment gateways and deep links no longer escape to the default browser.**
+  WebView2 hands every URI scheme it cannot render itself (`myapp://`, `tel:`,
+  `mailto:`, `intent://`, bank deep links …) straight to the OS shell, which
+  launches the registered app. The hand-off was invisible to Flutter, so the
+  page looked like it had simply vanished. Such navigations are now cancelled in
+  `NavigationStarting`, reported through `onNavigationRequest`, and surfaced as
+  `onWebResourceError` with error code `-10`.
+- **`window.open()` no longer destroys the host page.** `NewWindowRequested`
+  used to unconditionally navigate the main WebView to the requested URI, which
+  for a URI-less `window.open()` (the 3-D Secure pattern) meant navigating to
+  `about:blank`, and for a POST target meant losing the request body. The event
+  is now answered through a deferral so the Dart decision is honoured exactly.
+- Navigation failures are reported: `NavigationCompleted` reads `IsSuccess` and
+  maps `WebErrorStatus` onto the plugin's error codes, and `ProcessFailed` is
+  handled. Previously every failure was silent.
+- `WebViewSettings` were never applied on Windows, and event handlers were
+  registered *after* the first navigation started, so the first page produced no
+  events at all. Both are fixed, and creation now replies to Dart before
+  navigating so no event can be missed.
+- Progress events are synthesised from the WebView2 lifecycle (10/40/70/100).
+- Request headers are honoured on Windows via `NavigateWithWebResourceRequest`.
+- The native WebView2 window now follows the Flutter widget: bounds are
+  re-pushed on every layout change and the view is hidden while a dialog, route
+  or loading overlay covers it (new `WebViewController.setVisible`).
+- Implemented on Windows: `clearCache`, `clearCookies`, `setUserAgent`,
+  `evaluateJavaScript`, `injectCSS`, `getSelectedText`, `isDarkModeEnabled`,
+  `getPageAnalytics`, `findInPage`/`clearFindMatches`, `takeScreenshot`,
+  `shareCurrentPage`.
+
+### Added
+- `WebViewSettings.blockExternalSchemes` (default `true`) — set it to `false` to
+  get the old behaviour of letting the operating system handle unknown schemes.
+- `WebViewController.setVisible(bool)` for HWND-based platforms.
+
+### Changed
+- A blocked external scheme (error `-10`) no longer replaces the page with the
+  error screen when a page is already displayed: the document that tried to open
+  the deep link stays alive, which is what a payment flow needs.
+- The example app is now a test lab: a button per platform, an address field
+  with quick-pick gateway URLs, WebView switches, a bundled navigation-test page
+  (`assets/nav_test.html`), a live event log and a simulated payment return to
+  `myapp://payment/result`.
+- New integration tests (`example/integration_test/navigation_test.dart`) run
+  against the real platform WebView and cover the deep-link, `window.open()` and
+  ordinary-navigation paths.
+
+## [1.0.0] - 2026-09-01
 
 ### Added
 - **Blocking navigation control**: `onNavigationRequest` callback now returns
@@ -49,63 +98,3 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [1.0.0] - 2026-09-01
-
-### Added
-- Initial release of WebView Master plugin
-- Complete WebView implementation for Android and iOS
-- JavaScript execution support with `evaluateJavaScript`
-- Navigation controls (back, forward, reload)
-- URL loading with custom headers support
-- HTML string loading with base URL
-- Real-time loading progress tracking
-- Page load state monitoring (loading, finished, error)
-- Navigation request interception (informational)
-- Comprehensive error handling with detailed error codes
-- Cache management (clear cache functionality)
-- Cookie management (clear cookies functionality)
-- Custom user agent configuration
-- DOM storage and local storage support
-- Mixed content handling
-- Automatic permission handling for Android
-- Privacy manifest compliance for iOS
-- Easy-to-use Widget API (`WebViewWidget`)
-- Comprehensive callback system
-- Customizable loading and error states
-- Platform-optimized implementations:
-  - Android: Uses WebView with comprehensive settings
-  - iOS: Uses WKWebView with modern APIs
-- Web notifications via native implementation (Android)
-- Share current page via system share dialog
-- Pull-to-refresh support
-- Find in page
-- Screenshot capture (base64 PNG)
-- Custom CSS injection
-- Selected text retrieval
-- Page analytics
-- Dark mode detection
-- Complete example app demonstrating all features
-- Comprehensive documentation and API reference
-
-### Platform Support
-- Android: API 24+ (Android 7.0+)
-- iOS: iOS 15.0+
-- macOS: macOS 10.11+
-- Windows: Windows 10+ (stub)
-
-### Permissions Included (Android)
-- `INTERNET` — internet access
-- `ACCESS_NETWORK_STATE` — network state monitoring
-- `ACCESS_WIFI_STATE` — WiFi state monitoring
-- `READ_EXTERNAL_STORAGE` — file access for uploads
-- `WRITE_EXTERNAL_STORAGE` — file write access
-- `CAMERA` — camera access for web apps
-- `RECORD_AUDIO` — microphone access for web apps
-- `ACCESS_FINE_LOCATION` — precise location access
-- `ACCESS_COARSE_LOCATION` — approximate location access
-
-### Permissions Included (iOS)
-- Privacy manifest compliance
-- WebKit framework integration
-- AVFoundation framework for media
-- CoreLocation framework for location services

@@ -1,1018 +1,348 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:web_view_master/web_view_master.dart';
 
+import 'browser_page.dart';
+
 void main() {
-  runApp(const MyApp());
+  runApp(const ExampleApp());
 }
 
-class MyApp extends StatefulWidget {
-  const MyApp({super.key});
+class ExampleApp extends StatelessWidget {
+  const ExampleApp({super.key});
 
-  @override
-  State<MyApp> createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'WebView Master Demo',
-      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
-      home: const WebViewDemoPage(),
+      title: 'web_view_master',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorSchemeSeed: const Color(0xFF0B5ED7),
+      ),
+      builder: (context, child) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: child ?? const SizedBox.shrink(),
+      ),
+      home: const LauncherPage(),
     );
   }
 }
 
-class WebViewDemoPage extends StatefulWidget {
-  const WebViewDemoPage({super.key});
+/// One button in the platform row on the launcher page.
+class PlatformTarget {
+  const PlatformTarget(this.platform, this.label, this.icon, this.engine);
 
-  @override
-  State<WebViewDemoPage> createState() => _WebViewDemoPageState();
+  /// The platform this button stands for; `null` means Flutter web.
+  final TargetPlatform? platform;
+  final String label;
+  final IconData icon;
+
+  /// The browser engine the plugin drives on that platform.
+  final String engine;
 }
 
-class _WebViewDemoPageState extends State<WebViewDemoPage> {
-  String _platformVersion = 'Unknown';
-  final _webViewMasterPlugin = WebViewMaster();
-  WebViewController? _controller;
-  String _currentUrl = 'https://flutter.dev';
-  String _pageTitle = '';
-  bool _isLoading = false;
-  int _progress = 0;
-  bool _canGoBack = false;
-  bool _canGoForward = false;
-  bool _notificationsEnabled = false;
+const List<PlatformTarget> kTargets = [
+  PlatformTarget(
+      TargetPlatform.android, 'Android', Icons.android, 'android.webkit.WebView'),
+  PlatformTarget(TargetPlatform.iOS, 'iOS', Icons.phone_iphone, 'WKWebView'),
+  PlatformTarget(TargetPlatform.windows, 'Windows', Icons.desktop_windows,
+      'WebView2 (Edge/Chromium)'),
+  PlatformTarget(TargetPlatform.macOS, 'macOS', Icons.laptop_mac, 'WKWebView'),
+  PlatformTarget(
+      TargetPlatform.linux, 'Linux', Icons.computer, 'پیاده‌سازی نشده'),
+  PlatformTarget(null, 'Web', Icons.public, 'پشتیبانی نمی‌شود'),
+];
 
-  final TextEditingController _urlController = TextEditingController();
-  Timer? _urlUpdateTimer;
+/// Sentinel understood by [_LauncherPageState._open]: instead of fetching a
+/// URL, read the bundled asset and render it with `loadHtmlString`.
+const String kLocalTestPage = 'asset:assets/nav_test.html';
+
+class QuickLink {
+  const QuickLink(this.label, this.url);
+
+  final String label;
+  final String url;
+}
+
+const List<QuickLink> kQuickLinks = [
+  QuickLink('صفحه‌ی تست ناوبری (داخلی)', kLocalTestPage),
+  QuickLink('example.com', 'https://example.com'),
+  QuickLink('flutter.dev', 'https://flutter.dev'),
+  QuickLink('درگاه سپ / شاپرک', 'https://sep.shaparak.ir/OnlinePG/OnlinePG'),
+  QuickLink('درگاه زرین‌پال', 'https://www.zarinpal.com/pg/StartPay/0'),
+  QuickLink('اسکیم خارجی: myapp://', 'myapp://pay?amount=150000&ref=A1'),
+];
+
+class LauncherPage extends StatefulWidget {
+  const LauncherPage({super.key});
+
+  @override
+  State<LauncherPage> createState() => _LauncherPageState();
+}
+
+class _LauncherPageState extends State<LauncherPage> {
+  final TextEditingController _urlController =
+      TextEditingController(text: kLocalTestPage);
+  final WebViewMaster _plugin = WebViewMaster();
+
+  bool _blockExternalSchemes = true;
+  bool _supportMultipleWindows = false;
+  bool _enableJavaScript = true;
+  bool _showLoadingIndicator = false;
+  String _platformVersion = '…';
 
   @override
   void initState() {
     super.initState();
-    _urlController.text = _currentUrl;
-    initPlatformState();
+    _loadPlatformVersion();
   }
 
-  Future<void> initPlatformState() async {
-    String platformVersion;
+  @override
+  void dispose() {
+    _urlController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadPlatformVersion() async {
+    String version;
     try {
-      platformVersion =
-          await _webViewMasterPlugin.getPlatformVersion() ??
-          'Unknown platform version';
-    } on PlatformException {
-      platformVersion = 'Failed to get platform version.';
+      version = await _plugin.getPlatformVersion() ?? 'نامشخص';
+    } on MissingPluginException {
+      version = 'پلاگین روی این پلتفرم پیاده‌سازی نشده';
+    } on PlatformException catch (e) {
+      version = 'خطا: ${e.message}';
+    }
+    if (!mounted) return;
+    setState(() => _platformVersion = version);
+  }
+
+  bool _isCurrent(PlatformTarget target) => kIsWeb
+      ? target.platform == null
+      : target.platform == defaultTargetPlatform;
+
+  PlatformTarget get _current =>
+      kTargets.firstWhere(_isCurrent, orElse: () => kTargets.last);
+
+  void _snack(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Opens whatever is in the address field on a full-screen browser page.
+  Future<void> _open() async {
+    final raw = _urlController.text.trim();
+    if (raw.isEmpty) {
+      _snack('اول یک آدرس وارد کنید');
+      return;
+    }
+
+    var url = raw;
+    String? html;
+    if (raw.startsWith('asset:')) {
+      html = await rootBundle.loadString(raw.substring('asset:'.length));
+      // Only used as the base URL for relative links inside the page.
+      url = 'https://webviewmaster.local/nav_test.html';
+    } else if (!raw.contains(':')) {
+      url = 'https://$raw';
     }
 
     if (!mounted) return;
-
-    setState(() {
-      _platformVersion = platformVersion;
-    });
-  }
-
-  void _onPageStarted(String url) {
-    setState(() {
-      _isLoading = true;
-      _currentUrl = url;
-    });
-
-    // Debounce URL controller updates to reduce UI blocking
-    _urlUpdateTimer?.cancel();
-    _urlUpdateTimer = Timer(const Duration(milliseconds: 300), () {
-      if (mounted) {
-        _urlController.text = url;
-      }
-    });
-
-    // Defer heavy operations to avoid blocking main thread
-    Future.microtask(() => _updateNavigationState());
-  }
-
-  void _onPageFinished(String url) {
-    setState(() {
-      _isLoading = false;
-      _currentUrl = url;
-    });
-    // Defer heavy operations to avoid blocking main thread
-    Future.microtask(() async {
-      await _updateNavigationState();
-      await _updateTitle();
-    });
-  }
-
-  void _onProgressChanged(WebViewProgress progress) {
-    // Throttle progress updates to reduce setState calls
-    if ((progress.progress - _progress).abs() >= 5 ||
-        progress.progress == 100) {
-      setState(() {
-        _progress = progress.progress;
-      });
-    }
-  }
-
-  void _onWebResourceError(WebViewError error) {
-    setState(() {
-      _isLoading = false;
-    });
-
-    // Only show error for main frame errors, not resource errors
-    if (error.errorCode <= -1 && error.errorCode >= -15) {
-      // Defer snackbar to avoid blocking main thread
-      Future.microtask(() {
-        if (mounted) {
-          ScaffoldMessenger.of(context).clearSnackBars();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error loading page: ${error.description}'),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
-      });
-    }
-  }
-
-  Future<void> _updateNavigationState() async {
-    if (_controller != null) {
-      try {
-        final results = await Future.wait([
-          _controller!.canGoBack(),
-          _controller!.canGoForward(),
-        ]);
-
-        if (mounted) {
-          setState(() {
-            _canGoBack = results[0];
-            _canGoForward = results[1];
-          });
-        }
-      } catch (e) {
-        // Silently handle navigation state errors
-        if (kDebugMode) {
-          debugPrint('Navigation state update error: $e');
-        }
-      }
-    }
-  }
-
-  Future<void> _updateTitle() async {
-    if (_controller != null) {
-      try {
-        final title = await _controller!.getTitle();
-        if (mounted) {
-          setState(() {
-            _pageTitle = title ?? '';
-          });
-        }
-      } catch (e) {
-        // Silently handle title update errors
-        if (kDebugMode) {
-          debugPrint('Title update error: $e');
-        }
-      }
-    }
-  }
-
-  void _loadUrl() {
-    final url = _urlController.text.trim();
-    if (url.isNotEmpty && _controller != null) {
-      String finalUrl = url;
-      if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        finalUrl = 'https://$url';
-      }
-      _controller!.loadUrl(finalUrl);
-    }
-  }
-
-  void _goBack() {
-    if (_controller != null && _canGoBack) {
-      _controller!.goBack();
-    }
-  }
-
-  void _goForward() {
-    if (_controller != null && _canGoForward) {
-      _controller!.goForward();
-    }
-  }
-
-  void _reload() {
-    if (_controller != null) {
-      _controller!.reload();
-    }
-  }
-
-  void _clearCache() {
-    if (_controller != null) {
-      _controller!.clearCache();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Cache cleared')));
-    }
-  }
-
-  void _clearCookies() {
-    if (_controller != null) {
-      _controller!.clearCookies();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Cookies cleared')));
-    }
-  }
-
-  Future<void> _executeJavaScript() async {
-    if (_controller != null) {
-      try {
-        final result = await _controller!.evaluateJavaScript('document.title');
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('JavaScript Result'),
-              content: Text('Page title: $result'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('JavaScript error: $e')));
-        }
-      }
-    }
-  }
-
-  void _onWebNotificationReceived(WebNotification notification) {
-    // Show notification using notification_master
-    NotificationHelper.showWebNotification(notification);
-
-    // Also show a snackbar for demo purposes
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Web Notification: ${notification.title ?? 'No title'}',
-          ),
-          backgroundColor: Colors.blue,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
-  }
-
-  Future<void> _toggleNotifications() async {
-    if (_controller != null) {
-      try {
-        if (_notificationsEnabled) {
-          await _controller!.disableWebNotifications();
-          setState(() {
-            _notificationsEnabled = false;
-          });
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Web notifications disabled')),
-            );
-          }
-        } else {
-          // Initialize notification helper first
-          final initialized = await NotificationHelper.initialize();
-          if (initialized) {
-            await _controller!.enableWebNotifications();
-            setState(() {
-              _notificationsEnabled = true;
-            });
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Web notifications enabled')),
-              );
-            }
-          } else {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Failed to initialize notifications'),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            }
-          }
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Notification error: $e')));
-        }
-      }
-    }
-  }
-
-  Future<void> _testNotification() async {
-    // Test notification using notification_master directly
-    await NotificationHelper.showWebNotification(
-      WebNotification(
-        title: 'Test Notification',
-        body: 'This is a test notification from WebView Master!',
-        origin: 'webview_master_demo',
-      ),
-    );
-  }
-
-  Future<void> _requestNotificationPermission() async {
-    if (_controller != null) {
-      try {
-        final hasPermission = await _controller!.hasNotificationPermission();
-
-        if (hasPermission) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Notification permission already granted!'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          }
-        } else {
-          // Use WebView's native permission request
-          final result = await _controller!.requestNotificationPermission();
-
-          if (mounted) {
-            final message = result == 'granted'
-                ? 'Notification permission granted!'
-                : 'Please enable notifications in Settings > Apps > web_view_master_example > Permissions';
-            final backgroundColor = result == 'granted'
-                ? Colors.green
-                : Colors.orange;
-
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(message),
-                backgroundColor: backgroundColor,
-                duration: const Duration(seconds: 4),
-              ),
-            );
-          }
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Permission request error: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  Future<void> _loadNotificationTestPage() async {
-    if (_controller != null) {
-      try {
-        // Load the local HTML test page
-        final htmlContent = await DefaultAssetBundle.of(
-          context,
-        ).loadString('assets/notification_test.html');
-        await _controller!.loadHtmlString(htmlContent);
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Notification test page loaded'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to load test page: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  Future<void> _sharePage() async {
-    if (_controller != null) {
-      try {
-        await _controller!.shareCurrentPage();
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to share page: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  Future<void> _showFindDialog() async {
-    if (_controller == null) return;
-
-    final searchController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Find in Page'),
-        content: TextField(
-          controller: searchController,
-          decoration: const InputDecoration(
-            hintText: 'Enter text to search...',
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final searchText = searchController.text.trim();
-              final navigator = Navigator.of(context);
-              final messenger = ScaffoldMessenger.of(context);
-
-              if (searchText.isNotEmpty) {
-                try {
-                  final result = await _controller!.findInPage(searchText);
-                  if (mounted) {
-                    navigator.pop();
-                    messenger.showSnackBar(
-                      SnackBar(content: Text(result ?? 'Search completed')),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    navigator.pop();
-                    messenger.showSnackBar(
-                      SnackBar(
-                        content: Text('Search failed: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-              }
-            },
-            child: const Text('Search'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final navigator = Navigator.of(context);
-              final messenger = ScaffoldMessenger.of(context);
-
-              try {
-                await _controller!.clearFindMatches();
-                if (mounted) {
-                  navigator.pop();
-                  messenger.showSnackBar(
-                    const SnackBar(content: Text('Search cleared')),
-                  );
-                }
-              } catch (e) {
-                if (mounted) {
-                  navigator.pop();
-                  messenger.showSnackBar(
-                    SnackBar(
-                      content: Text('Clear failed: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
-            },
-            child: const Text('Clear'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _takeScreenshot() async {
-    if (_controller != null) {
-      try {
-        final screenshot = await _controller!.takeScreenshot();
-        if (screenshot != null && mounted) {
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Screenshot Taken'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('Screenshot captured successfully!'),
-                  const SizedBox(height: 16),
-                  Text('Size: ${screenshot.length} characters (base64)'),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Screenshot failed: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  Future<void> _showCSSDialog() async {
-    if (_controller == null) return;
-
-    final cssController = TextEditingController(
-      text:
-          '''
-body {
-  background-color: #f0f8ff !important;
-  color: #333 !important;
-}
-
-h1, h2, h3 {
-  color: #007bff !important;
-  text-shadow: 1px 1px 2px rgba(0,0,0,0.1) !important;
-}
-
-a {
-  color: #28a745 !important;
-  text-decoration: underline !important;
-}
-      '''
-              .trim(),
-    );
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Inject CSS'),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: 300,
-          child: TextField(
-            controller: cssController,
-            decoration: const InputDecoration(
-              hintText: 'Enter CSS code...',
-              border: OutlineInputBorder(),
-            ),
-            maxLines: null,
-            expands: true,
-            textAlignVertical: TextAlignVertical.top,
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => BrowserPage(
+          title: 'آزمون WebView',
+          initialUrl: url,
+          initialHtml: html,
+          showLoadingIndicator: _showLoadingIndicator,
+          settings: WebViewSettings(
+            enableJavaScript: _enableJavaScript,
+            supportMultipleWindows: _supportMultipleWindows,
+            blockExternalSchemes: _blockExternalSchemes,
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final css = cssController.text.trim();
-              final navigator = Navigator.of(context);
-              final messenger = ScaffoldMessenger.of(context);
-
-              if (css.isNotEmpty) {
-                try {
-                  await _controller!.injectCSS(css);
-                  if (mounted) {
-                    navigator.pop();
-                    messenger.showSnackBar(
-                      const SnackBar(
-                        content: Text('CSS injected successfully'),
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    navigator.pop();
-                    messenger.showSnackBar(
-                      SnackBar(
-                        content: Text('CSS injection failed: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-              }
-            },
-            child: const Text('Inject'),
-          ),
-        ],
       ),
     );
-  }
-
-  Future<void> _getPageAnalytics() async {
-    if (_controller != null) {
-      try {
-        final analytics = await _controller!.getPageAnalytics();
-        if (analytics != null && mounted) {
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Page Analytics'),
-              content: SizedBox(
-                width: double.maxFinite,
-                height: 300,
-                child: SingleChildScrollView(
-                  child: Text(
-                    analytics.entries
-                        .map((e) => '${e.key}: ${e.value}')
-                        .join('\n'),
-                    style: const TextStyle(fontFamily: 'monospace'),
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to get analytics: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  Future<void> _checkDarkMode() async {
-    if (_controller != null) {
-      try {
-        final isDark = await _controller!.isDarkModeEnabled();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                isDark ? 'Dark mode is enabled' : 'Dark mode is disabled',
-              ),
-              backgroundColor: isDark ? Colors.grey[800] : Colors.blue,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to check dark mode: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      appBar: AppBar(title: const Text('web_view_master — آزمایشگاه')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _buildPlatformCard(),
+          const SizedBox(height: 12),
+          _buildUrlCard(),
+          const SizedBox(height: 12),
+          _buildSettingsCard(),
+          const SizedBox(height: 12),
+          _buildScenarioCard(),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  Widget _card({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required Widget child,
+  }) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('WebView Master Demo'),
-            if (_pageTitle.isNotEmpty)
-              Text(
-                _pageTitle,
-                style: const TextStyle(fontSize: 12),
-                overflow: TextOverflow.ellipsis,
+            Row(
+              children: [
+                Icon(icon, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+              ],
+            ),
+            if (subtitle != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  subtitle,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               ),
+            const SizedBox(height: 12),
+            child,
           ],
         ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(60),
-          child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _urlController,
-                    decoration: const InputDecoration(
-                      hintText: 'Enter URL',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                    ),
-                    onSubmitted: (_) => _loadUrl(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(onPressed: _loadUrl, child: const Text('Go')),
-              ],
-            ),
-          ),
-        ),
       ),
-      body: Column(
-        children: [
-          // Progress bar
-          if (_isLoading)
-            LinearProgressIndicator(
-              value: _progress / 100,
-              backgroundColor: Colors.grey[300],
-            ),
+    );
+  }
 
-          // WebView
-          Expanded(
-            child: WebViewWidget(
-              initialUrl: _currentUrl,
-              onWebViewCreated: (controller) {
-                setState(() {
-                  _controller = controller;
-                });
-                // Defer navigation state update to avoid blocking main thread
-                Future.microtask(() => _updateNavigationState());
-              },
-              onPageStarted: _onPageStarted,
-              onPageFinished: _onPageFinished,
-              onProgressChanged: _onProgressChanged,
-              onWebResourceError: _onWebResourceError,
-              onWebNotificationReceived: _onWebNotificationReceived,
-              settings: const WebViewSettings(
-                enableJavaScript: true,
-                enableDomStorage: true,
-                enableZoom: true,
-                enableBuiltInZoomControls: true,
-                displayZoomControls: false,
-                allowFileAccess: false, // Improve security and performance
-                allowContentAccess: false, // Improve security and performance
-                supportMultipleWindows: false, // Reduce memory usage
-                enableSafeBrowsing: true,
-              ),
-              // Custom loading widget for better UX
-              loadingWidget: Container(
-                color: Colors.white,
-                child: const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 16),
-                      Text(
-                        'Initializing WebView...',
-                        style: TextStyle(fontSize: 16, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+  Widget _buildPlatformCard() {
+    return _card(
+      icon: Icons.devices,
+      title: 'پلتفرم',
+      subtitle: 'دستگاه فعلی: ${_current.label} — ${_current.engine}\n'
+          'نسخه‌ی سیستم: $_platformVersion',
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [for (final target in kTargets) _platformButton(target)],
+      ),
+    );
+  }
+
+  /// The button of the platform we are actually running on opens the WebView;
+  /// the others only explain that the app has to be run there instead.
+  Widget _platformButton(PlatformTarget target) {
+    final icon = Icon(target.icon, size: 18);
+    final label = Text(target.label);
+    if (_isCurrent(target)) {
+      return FilledButton.icon(onPressed: _open, icon: icon, label: label);
+    }
+    return OutlinedButton.icon(
+      onPressed: () => _snack(
+        'برای آزمودن ${target.label} باید اپ را روی همان پلتفرم اجرا کنید. '
+        'دستگاه فعلی: ${_current.label}',
+      ),
+      icon: icon,
+      label: label,
+    );
+  }
+
+  Widget _buildUrlCard() {
+    return _card(
+      icon: Icons.link,
+      title: 'لینکی که باید در WebView باز شود',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _urlController,
+            textDirection: TextDirection.ltr,
+            onSubmitted: (_) => _open(),
+            decoration: const InputDecoration(
+              isDense: true,
+              border: OutlineInputBorder(),
+              hintText: 'https://…',
             ),
           ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final link in kQuickLinks)
+                ActionChip(
+                  label: Text(link.label),
+                  onPressed: () => _urlController.text = link.url,
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _open,
+            icon: const Icon(Icons.open_in_browser),
+            label: const Text('نمایش در WebView'),
+          ),
+        ],
+      ),
+    );
+  }
 
-          // Navigation controls
-          Container(
-            padding: const EdgeInsets.all(8.0),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              border: Border(top: BorderSide(color: Colors.grey[300]!)),
+  Widget _buildSettingsCard() {
+    return _card(
+      icon: Icons.tune,
+      title: 'تنظیمات WebView',
+      child: Column(
+        children: [
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _blockExternalSchemes,
+            onChanged: (value) =>
+                setState(() => _blockExternalSchemes = value),
+            title: const Text('بلاک کردن اسکیم‌های خارجی'),
+            subtitle: const Text(
+              'روشن: لینک‌هایی مثل myapp:// و tel: داخل اپ گرفته می‌شوند. '
+              'خاموش: در ویندوز همان لینک به مرورگر پیش‌فرض تحویل داده می‌شود '
+              '(همان مشکل قبلی).',
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                IconButton(
-                  onPressed: _canGoBack ? _goBack : null,
-                  icon: const Icon(Icons.arrow_back),
-                  tooltip: 'Back',
-                ),
-                IconButton(
-                  onPressed: _canGoForward ? _goForward : null,
-                  icon: const Icon(Icons.arrow_forward),
-                  tooltip: 'Forward',
-                ),
-                IconButton(
-                  onPressed: _reload,
-                  icon: const Icon(Icons.refresh),
-                  tooltip: 'Reload',
-                ),
-                PopupMenuButton<String>(
-                  onSelected: (value) {
-                    switch (value) {
-                      case 'javascript':
-                        _executeJavaScript();
-                        break;
-                      case 'clear_cache':
-                        _clearCache();
-                        break;
-                      case 'clear_cookies':
-                        _clearCookies();
-                        break;
-                      case 'toggle_notifications':
-                        _toggleNotifications();
-                        break;
-                      case 'test_notification':
-                        _testNotification();
-                        break;
-                      case 'request_permission':
-                        _requestNotificationPermission();
-                        break;
-                      case 'load_test_page':
-                        _loadNotificationTestPage();
-                        break;
-                      case 'share_page':
-                        _sharePage();
-                        break;
-                      case 'find_in_page':
-                        _showFindDialog();
-                        break;
-                      case 'take_screenshot':
-                        _takeScreenshot();
-                        break;
-                      case 'inject_css':
-                        _showCSSDialog();
-                        break;
-                      case 'get_analytics':
-                        _getPageAnalytics();
-                        break;
-                      case 'check_dark_mode':
-                        _checkDarkMode();
-                        break;
-                      case 'platform_info':
-                        showDialog(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            title: const Text('Platform Info'),
-                            content: Text('Running on: $_platformVersion'),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('OK'),
-                              ),
-                            ],
-                          ),
-                        );
-                        break;
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: 'javascript',
-                      child: Text('Execute JavaScript'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'clear_cache',
-                      child: Text('Clear Cache'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'clear_cookies',
-                      child: Text('Clear Cookies'),
-                    ),
-                    PopupMenuItem(
-                      value: 'toggle_notifications',
-                      child: Row(
-                        children: [
-                          Icon(
-                            _notificationsEnabled
-                                ? Icons.notifications_off
-                                : Icons.notifications,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _notificationsEnabled
-                                ? 'Disable Notifications'
-                                : 'Enable Notifications',
-                          ),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'test_notification',
-                      child: Row(
-                        children: [
-                          Icon(Icons.notification_add),
-                          SizedBox(width: 8),
-                          Text('Test Notification'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'request_permission',
-                      child: Row(
-                        children: [
-                          Icon(Icons.security),
-                          SizedBox(width: 8),
-                          Text('Request Permission'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'load_test_page',
-                      child: Row(
-                        children: [
-                          Icon(Icons.web),
-                          SizedBox(width: 8),
-                          Text('Load Test Page'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'share_page',
-                      child: Row(
-                        children: [
-                          Icon(Icons.share),
-                          SizedBox(width: 8),
-                          Text('Share Page'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'find_in_page',
-                      child: Row(
-                        children: [
-                          Icon(Icons.search),
-                          SizedBox(width: 8),
-                          Text('Find in Page'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'take_screenshot',
-                      child: Row(
-                        children: [
-                          Icon(Icons.camera_alt),
-                          SizedBox(width: 8),
-                          Text('Take Screenshot'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'inject_css',
-                      child: Row(
-                        children: [
-                          Icon(Icons.style),
-                          SizedBox(width: 8),
-                          Text('Inject CSS'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'get_analytics',
-                      child: Row(
-                        children: [
-                          Icon(Icons.analytics),
-                          SizedBox(width: 8),
-                          Text('Page Analytics'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'check_dark_mode',
-                      child: Row(
-                        children: [
-                          Icon(Icons.dark_mode),
-                          SizedBox(width: 8),
-                          Text('Check Dark Mode'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'platform_info',
-                      child: Text('Platform Info'),
-                    ),
-                  ],
-                  icon: const Icon(Icons.more_vert),
-                ),
-              ],
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _supportMultipleWindows,
+            onChanged: (value) =>
+                setState(() => _supportMultipleWindows = value),
+            title: const Text('پنجره‌ی جدید مجاز باشد'),
+            subtitle: const Text(
+              'روشن: window.open و target=_blank پنجره‌ی جداگانه‌ی WebView '
+              'می‌سازند. خاموش: در همین WebView باز می‌شوند.',
+            ),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _enableJavaScript,
+            onChanged: (value) => setState(() => _enableJavaScript = value),
+            title: const Text('JavaScript'),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _showLoadingIndicator,
+            onChanged: (value) =>
+                setState(() => _showLoadingIndicator = value),
+            title: const Text('نمایش لودینگ روی WebView'),
+            subtitle: const Text(
+              'در ویندوز تا پایان بارگذاری، WebView پنهان می‌شود.',
             ),
           ),
         ],
@@ -1020,11 +350,43 @@ a {
     );
   }
 
-  @override
-  void dispose() {
-    _urlUpdateTimer?.cancel();
-    _urlController.dispose();
-    _controller?.dispose();
-    super.dispose();
+  Widget _buildScenarioCard() {
+    const steps = [
+      'چیپ «صفحه‌ی تست ناوبری (داخلی)» را انتخاب کنید و «نمایش در WebView» '
+          'را بزنید.',
+      'در گروه ۵ روی «شروع پرداخت» بزنید: صفحه‌ی بانک نمونه باز می‌شود و '
+          'پس از ۱٫۵ ثانیه به myapp://payment/result?status=ok برمی‌گردد.',
+      'اپ همان لینک را می‌گیرد و نتیجه‌ی پرداخت را نشان می‌دهد؛ هیچ چیزی به '
+          'مرورگر سیستم منتقل نمی‌شود.',
+      'گروه ۴ همه‌ی اسکیم‌های خارجی را تست می‌کند و گروه ۲ الگوی '
+          'window.open مربوط به 3-D Secure را.',
+      'برای دیدن رفتار قبلی، کلید «بلاک کردن اسکیم‌های خارجی» را خاموش کنید.',
+    ];
+    return _card(
+      icon: Icons.science_outlined,
+      title: 'شبیه‌سازی اپلیکیشن پرداخت',
+      subtitle: 'گزارش زنده‌ی رویدادها پایین صفحه‌ی مرورگر نشان داده می‌شود.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < steps.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CircleAvatar(
+                    radius: 11,
+                    child: Text('${i + 1}',
+                        style: const TextStyle(fontSize: 11)),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(steps[i])),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }

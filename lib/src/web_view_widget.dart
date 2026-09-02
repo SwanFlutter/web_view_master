@@ -88,19 +88,32 @@ class WebViewWidget extends StatefulWidget {
   State<WebViewWidget> createState() => _WebViewWidgetState();
 }
 
-class _WebViewWidgetState extends State<WebViewWidget> {
+class _WebViewWidgetState extends State<WebViewWidget>
+    with WidgetsBindingObserver {
   WebViewController? _controller;
   WebViewLoadingState _loadingState = WebViewLoadingState.loading;
   WebViewError? _error;
   int _progress = 0;
 
+  /// Windows only: the last rectangle and visibility pushed to WebView2, so
+  /// the native call can be skipped while nothing actually moves.
+  Rect? _lastBounds;
+  bool? _lastVisible;
+  bool _syncScheduled = false;
+
+  bool get _isWindows => defaultTargetPlatform == TargetPlatform.windows;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeWebView();
     });
   }
+
+  @override
+  void didChangeMetrics() => _scheduleWindowsSync();
 
   Future<void> _initializeWebView() async {
     try {
@@ -130,10 +143,20 @@ class _WebViewWidgetState extends State<WebViewWidget> {
         onWebResourceError: (error) {
           Future.microtask(() {
             if (mounted) {
-              setState(() {
-                _loadingState = WebViewLoadingState.error;
-                _error = error;
-              });
+              // A blocked external scheme (-10) is reported so the app can
+              // react to it, but it must not replace the page: the document
+              // that tried to open the deep link is still there and still
+              // usable — that is exactly the payment-gateway case. Only show
+              // the error screen when no page has been displayed yet.
+              final keepPage =
+                  error.errorCode == -10 &&
+                  _loadingState == WebViewLoadingState.finished;
+              if (!keepPage) {
+                setState(() {
+                  _loadingState = WebViewLoadingState.error;
+                  _error = error;
+                });
+              }
               widget.onWebResourceError?.call(error);
             }
           });
@@ -156,7 +179,11 @@ class _WebViewWidgetState extends State<WebViewWidget> {
       );
 
       Future.microtask(() {
-        if (mounted) widget.onWebViewCreated?.call(_controller!);
+        if (!mounted) return;
+        widget.onWebViewCreated?.call(_controller!);
+        // Windows: WebView2 lives in its own child window, so it has to be
+        // told where the Flutter widget is and when to hide.
+        _scheduleWindowsSync();
       });
     } catch (e) {
       if (mounted) {
@@ -174,8 +201,72 @@ class _WebViewWidgetState extends State<WebViewWidget> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller?.dispose();
     super.dispose();
+  }
+
+  /// Windows only: keeps WebView2 aligned with this widget.
+  ///
+  /// The native window is a sibling of the Flutter surface rather than a
+  /// texture inside it, so nothing moves it automatically — its rectangle has
+  /// to be re-pushed whenever the layout changes. The callback re-arms itself,
+  /// but a post-frame callback only runs when a frame is actually produced, so
+  /// an idle app costs nothing.
+  void _scheduleWindowsSync() {
+    if (!_isWindows || _syncScheduled || _controller == null) return;
+    _syncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncScheduled = false;
+      if (!mounted || _controller == null) return;
+      _syncWindowsGeometry();
+      _scheduleWindowsSync();
+    });
+  }
+
+  void _syncWindowsGeometry() {
+    final box = context.findRenderObject() as RenderBox?;
+    final visible = _nativeViewShouldBeVisible(box);
+    if (box != null && box.attached && box.hasSize && !box.size.isEmpty) {
+      final dpr = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0;
+      final origin = box.localToGlobal(Offset.zero);
+      final rect = Rect.fromLTRB(
+        (origin.dx * dpr).roundToDouble(),
+        (origin.dy * dpr).roundToDouble(),
+        ((origin.dx + box.size.width) * dpr).roundToDouble(),
+        ((origin.dy + box.size.height) * dpr).roundToDouble(),
+      );
+      if (rect != _lastBounds) {
+        _lastBounds = rect;
+        _controller!.setBounds(
+          rect.left.toInt(),
+          rect.top.toInt(),
+          rect.right.toInt(),
+          rect.bottom.toInt(),
+        );
+      }
+    }
+    if (visible != _lastVisible) {
+      _lastVisible = visible;
+      _controller!.setVisible(visible);
+    }
+  }
+
+  /// WebView2 paints over everything Flutter draws, so it has to be hidden
+  /// whenever Flutter is showing something on top of it: the error page, the
+  /// loading overlay, a dialog, or another route.
+  bool _nativeViewShouldBeVisible(RenderBox? box) {
+    if (box == null || !box.attached || !box.hasSize || box.size.isEmpty) {
+      return false;
+    }
+    if (_loadingState == WebViewLoadingState.error) return false;
+    if (widget.showLoadingIndicator &&
+        _loadingState == WebViewLoadingState.loading) {
+      return false;
+    }
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return false;
+    return TickerMode.valuesOf(context).enabled;
   }
 
   @override
@@ -223,9 +314,11 @@ class _WebViewWidgetState extends State<WebViewWidget> {
           creationParamsCodec: const StandardMessageCodec(),
         );
       case TargetPlatform.windows:
-        // WebView2 renders directly into the native window; Flutter uses
-        // a Texture widget to composite the pixel output into the widget tree.
-        return Texture(textureId: _controller!.webViewId);
+        // WebView2 renders into its own child window — not into a Flutter
+        // Texture — and that window paints on top of the Flutter surface.
+        // Reserve the space here and let _syncWindowsGeometry keep the native
+        // window lined up with this box.
+        return const SizedBox.expand();
       default:
         return Center(
           child: Text(

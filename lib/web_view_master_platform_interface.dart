@@ -42,6 +42,8 @@ abstract class WebViewMasterPlatform extends PlatformInterface {
     bool enableJavaScript = true,
     bool enableDomStorage = true,
     String? userAgent,
+    bool supportMultipleWindows = false,
+    bool blockExternalSchemes = true,
   }) {
     throw UnimplementedError('createWebView() has not been implemented.');
   }
@@ -113,6 +115,26 @@ abstract class WebViewMasterPlatform extends PlatformInterface {
 
   Future<void> setUserAgent(int webViewId, String userAgent) {
     throw UnimplementedError('setUserAgent() has not been implemented.');
+  }
+
+  Future<void> setBounds(
+    int webViewId,
+    int left,
+    int top,
+    int right,
+    int bottom,
+  ) {
+    throw UnimplementedError('setBounds() has not been implemented.');
+  }
+
+  /// Shows or hides the native WebView.
+  ///
+  /// Windows only: WebView2 renders into its own child window, which always
+  /// paints on top of the Flutter surface. Anything drawn over the WebView by
+  /// Flutter — a dialog, a bottom sheet, the next route — would be hidden
+  /// behind it, so the WebView has to be hidden explicitly.
+  Future<void> setVisible(int webViewId, bool visible) {
+    throw UnimplementedError('setVisible() has not been implemented.');
   }
 
   void disposeWebView(int webViewId) {

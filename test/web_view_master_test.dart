@@ -16,6 +16,8 @@ class MockWebViewMasterPlatform
     bool enableJavaScript = true,
     bool enableDomStorage = true,
     String? userAgent,
+    bool supportMultipleWindows = false,
+    bool blockExternalSchemes = true,
   }) => Future.value(1);
 
   @override
@@ -125,6 +127,18 @@ class MockWebViewMasterPlatform
   Future<String> requestNotificationPermission() {
     throw UnimplementedError();
   }
+
+  @override
+  Future<void> setBounds(
+    int webViewId,
+    int left,
+    int top,
+    int right,
+    int bottom,
+  ) => Future.value();
+
+  @override
+  Future<void> setVisible(int webViewId, bool visible) => Future.value();
 }
 
 void main() {

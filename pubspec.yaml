@@ -1,6 +1,6 @@
 name: web_view_master
 description: "A comprehensive WebView plugin for Flutter with advanced features including JavaScript support, native web notifications, share functionality, find in page, screenshot capture, CSS injection, page analytics, dark mode detection, and more. Build-stable and cross-platform compatible."
-version: 1.0.0
+version: 1.1.0
 homepage: https://github.com/SwanFlutter/web_view_master
 repository: https://github.com/SwanFlutter/web_view_master
 issue_tracker: https://github.com/SwanFlutter/web_view_master/issues

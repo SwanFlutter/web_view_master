@@ -78,6 +78,8 @@ class WebViewController {
       enableJavaScript: settings.enableJavaScript,
       enableDomStorage: settings.enableDomStorage,
       userAgent: settings.userAgent,
+      supportMultipleWindows: settings.supportMultipleWindows,
+      blockExternalSchemes: settings.blockExternalSchemes,
     );
 
     WebViewMasterPlatform.instance.setCallbacks(
@@ -213,6 +215,26 @@ class WebViewController {
   /// Set the user agent string
   Future<void> setUserAgent(String userAgent) {
     return WebViewMasterPlatform.instance.setUserAgent(_webViewId, userAgent);
+  }
+
+  /// Set the bounds of the WebView (Windows only — HWND-based rendering).
+  /// [left], [top], [right], [bottom] are in physical pixels.
+  Future<void> setBounds(int left, int top, int right, int bottom) {
+    return WebViewMasterPlatform.instance.setBounds(
+      _webViewId,
+      left,
+      top,
+      right,
+      bottom,
+    );
+  }
+
+  /// Show or hide the native WebView (Windows only).
+  ///
+  /// WebView2 paints in its own child window on top of the Flutter surface, so
+  /// it must be hidden while a dialog or another route covers it.
+  Future<void> setVisible(bool visible) {
+    return WebViewMasterPlatform.instance.setVisible(_webViewId, visible);
   }
 
   /// Enable web notifications

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -26,6 +28,8 @@ class MethodChannelWebViewMaster extends WebViewMasterPlatform {
     bool enableJavaScript = true,
     bool enableDomStorage = true,
     String? userAgent,
+    bool supportMultipleWindows = false,
+    bool blockExternalSchemes = true,
   }) async {
     final webViewId = await methodChannel.invokeMethod<int>('createWebView', {
       'initialUrl': initialUrl,
@@ -33,6 +37,8 @@ class MethodChannelWebViewMaster extends WebViewMasterPlatform {
       'enableJavaScript': enableJavaScript,
       'enableDomStorage': enableDomStorage,
       'userAgent': userAgent,
+      'supportMultipleWindows': supportMultipleWindows,
+      'blockExternalSchemes': blockExternalSchemes,
     });
     return webViewId!;
   }
@@ -92,8 +98,11 @@ class MethodChannelWebViewMaster extends WebViewMasterPlatform {
           return null;
 
         case 'onNavigationRequest':
-          // Native is BLOCKING on this call (CountDownLatch, 500ms timeout).
-          // We must return "prevent" or "navigate" as quickly as possible.
+          // Android blocks on this call (CountDownLatch, 500 ms timeout), so
+          // answer as quickly as possible. Windows cannot defer a navigation
+          // that already started: a late 'prevent' is honoured by stopping the
+          // load, and URLs WebView2 would hand to another app are blocked
+          // natively before this ever fires.
           final url = call.arguments['url'] as String;
           final isForMainFrame = call.arguments['isForMainFrame'] as bool;
           final navCallback =
@@ -111,7 +120,8 @@ class MethodChannelWebViewMaster extends WebViewMasterPlatform {
           return 'navigate';
 
         case 'onCreateWindow':
-          // Same blocking contract as onNavigationRequest.
+          // Android blocks like onNavigationRequest; Windows defers the popup
+          // until this returns, so the decision is applied exactly.
           final url = call.arguments['url'] as String;
           final isDialog = call.arguments['isDialog'] as bool? ?? false;
           final isUserGesture =
@@ -257,6 +267,31 @@ class MethodChannelWebViewMaster extends WebViewMasterPlatform {
   }
 
   @override
+  Future<void> setBounds(
+    int webViewId,
+    int left,
+    int top,
+    int right,
+    int bottom,
+  ) async {
+    await methodChannel.invokeMethod('setBounds', {
+      'webViewId': webViewId,
+      'left': left,
+      'top': top,
+      'right': right,
+      'bottom': bottom,
+    });
+  }
+
+  @override
+  Future<void> setVisible(int webViewId, bool visible) async {
+    await methodChannel.invokeMethod('setVisible', {
+      'webViewId': webViewId,
+      'visible': visible,
+    });
+  }
+
+  @override
   void disposeWebView(int webViewId) {
     _callbacks.remove(webViewId);
     methodChannel.invokeMethod('disposeWebView', {'webViewId': webViewId});
@@ -337,10 +372,21 @@ class MethodChannelWebViewMaster extends WebViewMasterPlatform {
 
   @override
   Future<Map<String, dynamic>?> getPageAnalytics(int webViewId) async {
-    final result = await methodChannel.invokeMethod<Map>('getPageAnalytics', {
+    final result = await methodChannel.invokeMethod('getPageAnalytics', {
       'webViewId': webViewId,
     });
-    return result?.cast<String, dynamic>();
+    // Android replies with a map; Windows evaluates JSON.stringify in the page
+    // and replies with the document itself.
+    if (result is Map) return result.cast<String, dynamic>();
+    if (result is String && result.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(result);
+        if (decoded is Map) return decoded.cast<String, dynamic>();
+      } on FormatException {
+        return null;
+      }
+    }
+    return null;
   }
 
   @override
